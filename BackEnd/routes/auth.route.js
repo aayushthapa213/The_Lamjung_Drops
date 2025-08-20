@@ -4,16 +4,12 @@ import { verifyToken } from "../middlewares/verifyToken.js";
 
 const router = express.Router();
 
-router.get("/check-auth", verifyToken, authController.checkAuth)
-
+router.get("/check-auth", verifyToken, authController.checkAuth);
+router.get("/pending-dealers", verifyToken, authController.getPendingDealers);
+router.post("/approve-dealer", verifyToken, authController.approveDealer);
+router.post("/reject-dealer", verifyToken, authController.rejectDealer);
 router.post("/signup", authController.signup);
-
 router.post("/login", authController.login);
-
 router.post("/logout", authController.logout);
-
-router.post("/verify-email", authController.verifyEmail);
-router.post("/forgot-password", authController.forgotPassword);
-router.post("/reset-password/:token", authController.resetPassword);
 
 export default router;

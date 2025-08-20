@@ -1,227 +1,213 @@
-import bcrypt from "bcryptjs";
-import crypto from "crypto";
 import { User } from "../models/User.js";
-import generateVerificationCode from "../utils/generateVerificationCode.js";
+import bcrypt from "bcryptjs";
 import generateTokenAndSetCookie from "../utils/generateTokenAndSetCookie.js";
-import {
-  sendPasswordResetEmail,
-  sendResetSuccessEmail,
-  sendVerificationEmail,
-  sendWelcomeEmail,
-} from "../mailtrap/emails.js";
 
 const signup = async (req, res) => {
-  const { email, password, name, role, companyName, bulkDiscountRate } =
-    req.body;
   try {
-    if (!email || !password || !name) {
-      throw new Error("All Fields Are Required!");
+    const { name, email, password, role, companyName } = req.body;
+    console.log("Signup attempt for email:", email);
+
+    if (!email || !password) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Email and password are required!" });
     }
 
-    if (role === "dealer" && !companyName) {
-      throw new Error("Company Name Is Required!");
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Email already exists!" });
     }
 
-    const userAlreadyExists = await User.findOne({ email });
-    if (userAlreadyExists) {
-      return res.status(400).json({ message: "User Already Exists!" });
-    }
-
-    const hashedPassword = await bcrypt.hash(password, 10);
-    const verificationCode = generateVerificationCode();
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
 
     const user = new User({
+      name,
       email,
       password: hashedPassword,
-      name,
-      role,
+      role: role || "user",
       companyName: role === "dealer" ? companyName : undefined,
-      bulkDiscountRate: role === "dealer" ? bulkDiscountRate || 0 : undefined,
-      verificationToken: verificationCode,
-      verificationTokenExpiresAt: Date.now() + 24 * 60 * 60 * 1000,
+      isPending: role === "dealer",
     });
 
     await user.save();
+    console.log("User created:", user._id);
 
-    //jwt
-    generateTokenAndSetCookie(res, user._id);
-
-    await sendVerificationEmail(user.email, verificationCode);
-
-    res.status(201).json({
-      success: true,
-      message: "User Created Successfully",
-      user: {
-        ...user._doc,
-        password: undefined,
-      },
-    });
-  } catch (error) {
-    res.status(400).json({ success: false, message: error.message });
-  }
-};
-
-const verifyEmail = async (req, res) => {
-  const { code } = req.body;
-  try {
-    const user = await User.findOne({
-      verificationToken: code,
-      verificationTokenExpiresAt: { $gt: Date.now() },
-    });
-
-    if (!user) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid or Expired Verification Code!",
-      });
+    if (user.role !== "dealer") {
+      await generateTokenAndSetCookie(res, user._id, user.role);
     }
 
-    user.isVerified = true;
-    user.verificationToken = undefined;
-    user.verificationTokenExpiresAt = undefined;
-    await user.save();
-
-    await sendWelcomeEmail(user.email, user.name);
-    res.status(200).json({
+    return res.status(201).json({
       success: true,
-      message: "Email Verified Successfully!",
+      message:
+        user.role === "dealer"
+          ? "Dealer signup request sent for approval!"
+          : "Signup successful!",
       user: {
-        ...user._doc,
-        password: undefined,
+        id: user._id,
+        email: user.email,
+        role: user.role,
+        status: user.isPending ? "pending" : "approved",
       },
     });
   } catch (error) {
-    console.log("Error in Verify Email! ", error);
-    res.status(500).json({ success: false, message: "Server Error!" });
+    console.log("Error in signup:", error);
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
 
 const login = async (req, res) => {
-  console.log("Login request body:", req.body); 
-  const { email, password } = req.body;
   try {
+    const { email, password } = req.body;
+    console.log("Login attempt for email:", email);
+
     const user = await User.findOne({ email });
+    console.log("Finding user for email:", email);
     if (!user) {
       return res
         .status(400)
-        .json({ success: false, message: "Invalid Credentials!" });
+        .json({ success: false, message: "Invalid credentials!" });
     }
+
+    console.log("Validating password for user:", user._id);
     const isPasswordValid = await bcrypt.compare(password, user.password);
     if (!isPasswordValid) {
       return res
         .status(400)
-        .json({ success: false, message: "Invalid Credentials!" });
+        .json({ success: false, message: "Invalid credentials!" });
     }
-    generateTokenAndSetCookie(res, user._id);
-    user.lastlogin = new Date();
+
+    console.log("Generating token for user:", user._id);
+    const token = await generateTokenAndSetCookie(res, user._id, user.role);
+    console.log("Updating last login for user:", user._id);
+    user.lastLogin = new Date();
     await user.save();
 
-    res.status(200).json({
+    console.log("Login successful for user:", user._id);
+    return res.status(200).json({
       success: true,
-      message: "Logged In Successfully!",
+      message: "Login successful!",
       user: {
-        ...user._doc,
-        password: undefined,
+        id: user._id,
+        email: user.email,
+        role: user.role,
+        status: user.isPending ? "pending" : "approved",
       },
+      token,
     });
   } catch (error) {
-    console.log("Error In Login ", error);
-    res.status(400).json({ success: false, message: error.message });
+    console.log("Error in login:", error);
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
 
 const logout = async (req, res) => {
-  res.clearCookie("token");
-  res.status(200).json({ success: true, message: "Logged Out Successfully!" });
-};
-
-const forgotPassword = async (req, res) => {
-  const { email } = req.body;
   try {
-    const user = await User.findOne({ email });
-    if (!user) {
-      return res
-        .status(400)
-        .json({ success: false, message: "User Not Found!" });
-    }
-
-    //Generate reset token
-    const resetToken = crypto.randomBytes(20).toString("hex");
-    const resetPasswordExpiresAt = Date.now() + 1 * 60 * 60 * 1000;
-
-    user.resetPasswordToken = resetToken;
-    user.resetPasswordExpiresAt = resetPasswordExpiresAt;
-
-    await user.save();
-
-    //send email
-    await sendPasswordResetEmail(
-      user.email,
-      `${process.env.CLIENT_URL}/reset-password/${resetToken}`
-    );
-
-    res.status(200).json({
-      success: true,
-      message: "Password Reset Link Sent To Your Email",
-    });
-  } catch (error) {
-    console.log("Error In ForgotPassword ", error);
-    res.status(400).json({ success: false, message: error.message });
-  }
-};
-
-const resetPassword = async (req, res) => {
-  try {
-    const { token } = req.params;
-    const { password } = req.body;
-
-    const user = await User.findOne({
-      resetPasswordToken: token,
-      resetPasswordExpiresAt: { $gt: Date.now() },
-    });
-
-    if (!user) {
-      return res
-        .status(400)
-        .json({ success: false, message: "Invalid or Expired Reset Token!" });
-    }
-
-    //update password
-    const hashedPassword = await bcrypt.hash(password, 10);
-    user.password = hashedPassword;
-    user.resetPasswordToken = undefined;
-    user.resetPasswordExpiresAt = undefined;
-    await user.save();
-    await sendResetSuccessEmail(user.email);
-    res
+    res.clearCookie("token");
+    return res
       .status(200)
-      .json({ success: true, message: "Password Reset Successful!" });
+      .json({ success: true, message: "Logout successful!" });
   } catch (error) {
-    console.log("Error In ResetPassword ", error);
-    res.status(400).json({ success: false, message: error.message });
+    console.log("Error in logout:", error);
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
 
 const checkAuth = async (req, res) => {
   try {
-    const user = await User.findById(req.userId);
-
+    const user = await User.findById(req.userId).select("-password");
     if (!user) {
       return res
         .status(400)
-        .json({ success: false, message: "User Not Found!" });
+        .json({ success: false, message: "User not found!" });
     }
-
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       user: {
-        ...user._doc,
-        password: undefined,
+        id: user._id,
+        email: user.email,
+        role: user.role,
+        name: user.name,
+        companyName: user.companyName,  
+        status: user.isPending ? "pending" : "approved",
       },
     });
   } catch (error) {
-    console.log("Error In checkAuth ", error);
-    res.status(400).json({ success: false, message: error.message });
+    console.log("Error in checkAuth:", error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+const getPendingDealers = async (req, res) => {
+  if (req.userRole !== "admin") {
+    return res.status(403).json({
+      success: false,
+      message: "Unauthorized: Admin access required!",
+    });
+  }
+  try {
+    const pendingDealers = await User.find({
+      role: "dealer",
+      isPending: true,
+    }).select("-password");
+    return res.status(200).json({ success: true, pendingDealers });
+  } catch (error) {
+    console.log("Error in getPendingDealers:", error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+const approveDealer = async (req, res) => {
+  if (req.userRole !== "admin") {
+    return res.status(403).json({
+      success: false,
+      message: "Unauthorized: Admin access required!",
+    });
+  }
+  try {
+    const { userId, bulkDiscountRate } = req.body;
+    const user = await User.findById(userId);
+    if (!user || user.role !== "dealer" || user.isPending !== true) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid dealer or already approved!",
+      });
+    }
+    user.isPending = false;
+    user.bulkDiscountRate = bulkDiscountRate || 0;
+    await user.save();
+    return res
+      .status(200)
+      .json({ success: true, message: "Dealer approved successfully!" });
+  } catch (error) {
+    console.log("Error in approveDealer:", error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+const rejectDealer = async (req, res) => {
+  if (req.userRole !== "admin") {
+    return res.status(403).json({
+      success: false,
+      message: "Unauthorized: Admin access required!",
+    });
+  }
+  try {
+    const { userId } = req.body;
+    const user = await User.findByIdAndDelete(userId);
+    if (!user || user.role !== "dealer" || user.isPending !== true) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid dealer!" });
+    }
+    return res
+      .status(200)
+      .json({ success: true, message: "Dealer request rejected!" });
+  } catch (error) {
+    console.log("Error in rejectDealer:", error);
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
 
@@ -229,8 +215,8 @@ export default {
   signup,
   login,
   logout,
-  verifyEmail,
-  forgotPassword,
-  resetPassword,
   checkAuth,
+  getPendingDealers,
+  approveDealer,
+  rejectDealer,
 };

@@ -1,15 +1,15 @@
 import { motion } from "framer-motion";
 import Input from "../Components/Input";
-import { Loader, Lock, Mail, User } from "lucide-react";
+import { Loader, Lock, Mail, Building } from "lucide-react";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import PasswordStrengthMeter from "../Components/PasswordStrengthMeter";
 import { useAuthStore } from "../store/authStore";
 import toast from "react-hot-toast";
 
-const SignUpPage = () => {
-  const [name, setName] = useState("");
+const DealerSignUpPage = () => {
   const [email, setEmail] = useState("");
+  const [companyName, setCompanyName] = useState("");
   const [password, setPassword] = useState("");
   const [errors, setErrors] = useState({});
   const navigate = useNavigate();
@@ -19,17 +19,21 @@ const SignUpPage = () => {
   const validateForm = () => {
     const newErrors = {};
 
-    if (!name) newErrors.name = "Name is required!";
-    else if (name.length < 2 || name.length > 50) newErrors.name = "Name must be 2-50 characters long!";
-    else if (!/^[a-zA-Z\s]+$/.test(name)) newErrors.name = "Name must contain only letters and spaces!";
-
     if (!email) newErrors.email = "Email is required!";
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) newErrors.email = "Invalid email format!";
 
+    if (!companyName) newErrors.companyName = "Company Name is required!";
+    else if (companyName.length < 2 || companyName.length > 100)
+      newErrors.companyName = "Company Name must be 2-100 characters long!";
+    else if (!/^[a-zA-Z0-9\s&-.]+$/.test(companyName))
+      newErrors.companyName = "Company Name must contain only letters, numbers, spaces, &, -, or .!";
+
     if (!password) newErrors.password = "Password is required!";
-    else if (!/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{6,12}$/.test(password))
+    else if (
+      !/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{6,12}$/.test(password)
+    )
       newErrors.password =
-        "Password must be 6-12 characters long, with uppercase, lowercase, number, and special char!";
+        "Password must be 6-12 characters long, with at least one uppercase letter, one lowercase letter, one number, and one special character!";
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -39,8 +43,8 @@ const SignUpPage = () => {
     e.preventDefault();
     if (!validateForm()) return;
     try {
-      await signup(email, password, name);
-      toast.success("Signup successful!");
+      await signup(email, password, undefined, "dealer", companyName);
+      toast.success("Dealer signup request submitted. Awaiting admin approval.");
       navigate("/");
     } catch (error) {
       toast.error(serverError || "Error signing up");
@@ -57,20 +61,10 @@ const SignUpPage = () => {
       >
         <div className="p-8">
           <h2 className="text-3xl font-bold mb-6 text-center text-[#005BAA]">
-            Create Account
+            Dealer Sign Up
           </h2>
 
           <form onSubmit={handleSignUp}>
-            <Input
-              icon={User}
-              type="text"
-              placeholder="Full Name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              required
-            />
-            {errors.name && <p className="text-red-500 text-sm mt-1">{errors.name}</p>}
-
             <Input
               icon={Mail}
               type="email"
@@ -80,6 +74,16 @@ const SignUpPage = () => {
               required
             />
             {errors.email && <p className="text-red-500 text-sm mt-1">{errors.email}</p>}
+
+            <Input
+              icon={Building}
+              type="text"
+              placeholder="Company Name"
+              value={companyName}
+              onChange={(e) => setCompanyName(e.target.value)}
+              required
+            />
+            {errors.companyName && <p className="text-red-500 text-sm mt-1">{errors.companyName}</p>}
 
             <Input
               icon={Lock}
@@ -102,7 +106,7 @@ const SignUpPage = () => {
               type="submit"
               disabled={isLoading}
             >
-              {isLoading ? <Loader className="animate-spin mx-auto" size={24} /> : "Sign Up"}
+              {isLoading ? <Loader className="animate-spin mx-auto" size={24} /> : "Sign Up as Dealer"}
             </motion.button>
           </form>
         </div>
@@ -115,8 +119,8 @@ const SignUpPage = () => {
             </Link>
           </p>
           <p>
-            <Link to="/dealer-signup" className="underline hover:text-[#FF3C3C]">
-              Sign up as a dealer
+            <Link to="/signup" className="underline hover:text-[#FF3C3C]">
+              Sign up as a user
             </Link>
           </p>
         </div>
@@ -125,4 +129,4 @@ const SignUpPage = () => {
   );
 };
 
-export default SignUpPage;
+export default DealerSignUpPage;

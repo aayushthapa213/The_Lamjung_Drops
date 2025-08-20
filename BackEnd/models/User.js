@@ -6,7 +6,6 @@ const userSchema = new mongoose.Schema(
       type: String,
       required: true,
       unique: true,
-      // lowercase: true,
     },
     password: {
       type: String,
@@ -14,15 +13,19 @@ const userSchema = new mongoose.Schema(
     },
     name: {
       type: String,
-      required: true,
+      required: function () {
+        return this.role !== "dealer"; // Name is optional for dealers
+      },
     },
     lastlogin: {
       type: Date,
       default: Date.now,
     },
-    isVerified: {
+    isPending: {
       type: Boolean,
-      default: false,
+      default: function () {
+        return this.role === "dealer"; // Dealers start as pending
+      },
     },
     role: {
       type: String,
@@ -37,12 +40,7 @@ const userSchema = new mongoose.Schema(
     },
     bulkDiscountRate: {
       type: Number,
-      default: 0,
     },
-    resetPasswordToken: String,
-    resetPasswordExpiresAt: Date,
-    verificationToken: String,
-    verificationTokenExpiresAt: Date,
   },
   { timestamps: true }
 );
